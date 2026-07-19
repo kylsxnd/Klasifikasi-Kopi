@@ -1,16 +1,23 @@
-from flask import Flask, render_template, request
+import streamlit as st
 import tensorflow as tf
 import numpy as np
-import os
 import random
+from PIL import Image
 
-app = Flask(__name__)
+# 1. Konfigurasi Halaman & Model
+st.set_page_config(page_title="Kopi-AI Analytics", page_icon="☕")
+st.title("☕ Kopi-AI Analytics")
+st.write("Sistem Identifikasi Tingkat Kematangan Biji Kopi Arabika")
 
-# Load model AI kamu
-model = tf.keras.models.load_model('model_kopi_v1.h5')
+# Cache model agar tidak load ulang terus menerus
+@st.cache_resource
+def load_my_model():
+    return tf.keras.models.load_model('model_kopi_v1.h5')
+
+model = load_my_model()
 class_names = ['Dark', 'Green', 'Light', 'Medium']
 
-# Fungsi Image Captioning Dinamis
+# 2. Fungsi Captioning
 def get_caption_ai(label):
     captions = {
         "Dark": [
@@ -36,36 +43,31 @@ def get_caption_ai(label):
     }
     return random.choice(captions.get(label, ["Menganalisis karakteristik biji..."]))
 
-@app.route('/', methods=['GET', 'POST'])
-def index():
-    if request.method == 'POST':
-        file = request.files['file']
-        if file:
-            if not os.path.exists('static'): os.makedirs('static')
-            path = os.path.join('static', file.filename)
-            file.save(path)
-            
-            # Preprocessing Gambar
-            img = tf.keras.utils.load_img(path, target_size=(224, 224))
-            img_array = tf.keras.utils.img_to_array(img) / 255.0
+# 3. Antarmuka (UI)
+uploaded_file = st.file_uploader("Upload citra biji kopi...", type=['jpg', 'jpeg', 'png'])
+
+if uploaded_file is not None:
+    # Buka gambar & paksa jadi RGB biar gak error shape
+    image = Image.open(uploaded_file).convert('RGB')
+    st.image(image, caption='Citra Input', use_column_width=True)
+    
+    if st.button('Mulai Analisis Sistem'):
+        with st.spinner('Sedang menganalisis...'):
+            # Preprocessing
+            img = image.resize((224, 224))
+            img_array = np.array(img) / 255.0
             img_array = np.expand_dims(img_array, axis=0)
             
-            # Prediksi AI
+            # Prediksi
             predictions = model.predict(img_array)
             score = np.max(predictions) * 100
             label = class_names[np.argmax(predictions)]
             
-            # Ambil Caption & Format Skor
-            caption_final = get_caption_ai(label)
-            score_final = "{:.2f}".format(score)
+            # Tampilkan Hasil
+            st.success(f"Hasil Prediksi: **{label} Roast**")
+            st.write(f"Tingkat Keyakinan: **{score:.2f}%**")
             
-            return render_template('index.html', 
-                                   label=label, 
-                                   caption=caption_final, 
-                                   img_path=path.replace("\\", "/"), 
-                                   accuracy=score_final)
-            
-    return render_template('index.html')
-
-if __name__ == '__main__':
-    app.run(debug=True, port=5000)
+            # Narasi
+            st.markdown("---")
+            st.subheader("Narasi Karakteristik:")
+            st.info(get_caption_ai(label))
